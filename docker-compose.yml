@@ -1,0 +1,34 @@
+version: "3.9"
+services:
+    seedseek:
+        build: .
+        container_name: seedseek
+        image: seedseek
+        restart: unless-stopped
+          #entrypoint: /usr/bin/tail
+          #command: "-f /dev/null"
+          #tty: true
+        environment:
+          - SS_LOG_LEVEL=${SS_LOG_LEVEL}
+          - SS_BOT_TOKEN=${SS_BOT_TOKEN}
+          - SS_BOT_USERNAME=${SS_BOT_USERNAME}
+          - SS_WEBHOOK_URL=${SS_WEBHOOK_URL}
+          - SS_JACKETT_URL=${SS_JACKETT_URL}
+          - SS_JACKETT_API_KEY=${SS_JACKETT_API_KEY}
+        ports:
+            - 8443:8443
+        networks: 
+            - ss-external
+        labels:
+          traefik.enable: "true"
+          traefik.http.routers.seedseek.rule: "Host(`webhook-ss.blsm.me`)"          
+          traefik.http.routers.seedseek.entrypoints: "websecure"
+          traefik.http.routers.seedseek.service: "seedseek"
+          traefik.http.services.seedseek.loadbalancer.server.port: "8443"
+          traefik.http.routers.seedseek.tls.certresolver: "cfresolver"
+
+
+networks:
+  ss-external:
+    name: "ss-external"
+    external: true
