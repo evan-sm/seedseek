@@ -18,10 +18,11 @@ type Boter interface {
 }
 
 type Bot struct {
-	log logger.Logger
-	cfg *config.Config
-	bot *tg.BotAPI
-	idx indexer.Indexer
+	log          logger.Logger
+	cfg          *config.Config
+	bot          *tg.BotAPI
+	idx          indexer.Indexer
+	allowedUsers map[int64]struct{}
 }
 
 func New(ctx context.Context, cfg *config.Config, log logger.Logger, idx indexer.Indexer) (Boter, error) {
@@ -32,13 +33,14 @@ func New(ctx context.Context, cfg *config.Config, log logger.Logger, idx indexer
 
 	bot.Debug = true
 
-	log.InfoContext(ctx, "Authorized on account %s", bot.Self.UserName)
+	log.InfoContext(ctx, "Authorized on account", "Bot", bot.Self.UserName)
 
 	return &Bot{
-		log: log,
-		cfg: cfg,
-		bot: bot,
-		idx: idx,
+		log:          log,
+		cfg:          cfg,
+		bot:          bot,
+		idx:          idx,
+		allowedUsers: loadAllowedUsers(cfg.BotAllowedUsers),
 	}, nil
 }
 
@@ -57,6 +59,11 @@ func (b *Bot) Run(ctx context.Context) error {
 	go http.ListenAndServe("0.0.0.0:8443", nil)
 
 	for u := range updates {
+		if _, ok := b.allowedUsers[u.Message.From.ID]; !ok {
+			b.log.InfoContext(ctx, "Unauthorized user", "UserName", u.Message.From.UserName, "UserID", u.Message.From.ID)
+			continue
+		}
+
 		if u.Message != nil {
 			b.log.InfoContext(ctx, "[%s:%s] %s", u.Message.Chat.Title, u.Message.From.UserName, u.Message.Text)
 		}
@@ -121,4 +128,13 @@ func (b *Bot) Close() error {
 func bytesToGB(bytes uint) uint {
 	gigabytes := bytes / (1024 * 1024 * 1024)
 	return gigabytes
+}
+
+func loadAllowedUsers(userIDs []int64) map[int64]struct{} {
+	allowedUsers := make(map[int64]struct{}, len(userIDs))
+	for _, u := range userIDs {
+		allowedUsers[u] = struct{}{}
+	}
+
+	return allowedUsers
 }

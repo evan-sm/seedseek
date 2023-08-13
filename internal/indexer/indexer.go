@@ -6,8 +6,10 @@ import (
 
 	"seedseek/internal/config"
 	"seedseek/internal/entity"
-	"seedseek/pkg/jackett"
 	"seedseek/pkg/logger"
+
+	"github.com/go-redis/redis"
+	"github.com/wmw64/go-jackett"
 )
 
 const (
@@ -23,60 +25,70 @@ type Indexer interface {
 type indexer struct {
 	log     logger.Logger
 	cfg     *config.Config
-	jackett jackett.Jacketter
+	jackett *jackett.Jackett
+	cache   *redis.Client
 }
 
 // New returns indexer service.
-func New(log logger.Logger, cfg *config.Config, jackett jackett.Jacketter) Indexer {
+func New(log logger.Logger, cfg *config.Config, r *redis.Client) Indexer {
+	j := jackett.NewJackett(&jackett.Settings{
+		ApiURL: cfg.JackettURL,
+		ApiKey: cfg.JackettApiKey,
+	})
+
 	return &indexer{
 		log:     log,
 		cfg:     cfg,
-		jackett: jackett,
+		jackett: j,
+		cache:   r,
 	}
 }
 
 func (idx *indexer) Fetch(ctx context.Context, name string, sorting string, limit ...int) (items []entity.Item, err error) {
-	res, err := idx.jackett.Fetch(ctx, name, categoryVR)
+	res, err := idx.jackett.Fetch(ctx, &jackett.FetchRequest{
+		Categories: []uint{categoryVR},
+		Query:      name,
+	})
 	if err != nil {
 		idx.log.ErrorContext(ctx, "", err)
 	}
 
-	for i := range res {
+	for _, r := range res.Results {
 		item := entity.Item{
-			BannerUrl:            res[i].BannerUrl,
-			BlackholeLink:        res[i].BlackholeLink,
-			Category:             res[i].Category,
-			CategoryDesc:         res[i].CategoryDesc,
-			Comments:             res[i].Comments,
-			Description:          res[i].Description,
-			Details:              res[i].Details,
-			DownloadVolumeFactor: res[i].DownloadVolumeFactor,
-			Files:                res[i].Files,
-			FirstSeen:            res[i].FirstSeen,
-			Gain:                 res[i].Gain,
-			Grabs:                res[i].Grabs,
-			Guid:                 res[i].Guid,
-			Imdb:                 res[i].Imdb,
-			InfoHash:             res[i].InfoHash,
-			Link:                 res[i].Link,
-			MagnetUri:            res[i].MagnetUri,
-			MinimumRatio:         res[i].MinimumRatio,
-			MinimumSeedTime:      res[i].MinimumSeedTime,
-			Peers:                res[i].Peers,
-			PublishDate:          res[i].PublishDate,
-			RageID:               res[i].RageID,
-			Seeders:              res[i].Seeders,
-			Size:                 res[i].Size,
-			TMDb:                 res[i].TMDb,
-			TVDBId:               res[i].TVDBId,
-			TVMazeId:             res[i].TVMazeId,
-			TraktId:              res[i].TraktId,
-			DoubanId:             res[i].DoubanId,
-			Title:                res[i].Title,
-			Tracker:              res[i].Tracker,
-			TrackerId:            res[i].TrackerId,
-			TrackerType:          res[i].TrackerType,
-			UploadVolumeFactor:   res[i].UploadVolumeFactor,
+			BannerUrl:            r.BannerUrl,
+			BlackholeLink:        r.BlackholeLink,
+			Category:             r.Category,
+			CategoryDesc:         r.CategoryDesc,
+			Comments:             r.Comments,
+			Description:          r.Description,
+			Details:              r.Details,
+			DownloadVolumeFactor: r.DownloadVolumeFactor,
+			Files:                r.Files,
+			FirstSeen:            r.FirstSeen.Time,
+			Gain:                 r.Gain,
+			Grabs:                r.Grabs,
+			Guid:                 r.Guid,
+			Imdb:                 r.Imdb,
+			InfoHash:             r.InfoHash,
+			Link:                 r.Link,
+			MagnetUri:            r.MagnetUri,
+			MinimumRatio:         r.MinimumRatio,
+			MinimumSeedTime:      r.MinimumSeedTime,
+			Peers:                r.Peers,
+			PublishDate:          r.PublishDate.Time,
+			RageID:               r.RageID,
+			Seeders:              r.Seeders,
+			Size:                 r.Size,
+			TMDb:                 r.TMDb,
+			TVDBId:               r.TVDBId,
+			TVMazeId:             r.TVMazeId,
+			TraktId:              r.TraktId,
+			DoubanId:             r.DoubanId,
+			Title:                r.Title,
+			Tracker:              r.Tracker,
+			TrackerId:            r.TrackerId,
+			TrackerType:          r.TrackerType,
+			UploadVolumeFactor:   r.UploadVolumeFactor,
 		}
 
 		items = append(items, item)
@@ -97,6 +109,19 @@ func (idx *indexer) Fetch(ctx context.Context, name string, sorting string, limi
 	if len(limit) > 0 {
 		if len(items) >= limit[0] {
 			items = items[:limit[0]]
+		}
+	}
+
+	for i := range items {
+		idx.log.InfoContext(ctx, items[i].Details)
+		// new := idx.cache.SAdd(items[i].Details).Val()
+		new, err := idx.cache.SAdd("postedResults", items[i].Details).Result()
+		if err != nil {
+			idx.log.ErrorContext(ctx, "", err)
+		}
+
+		if new == 0 {
+			items[i].IsNew = true
 		}
 	}
 

@@ -8,9 +8,9 @@ import (
 	"seedseek/internal/config"
 	"seedseek/internal/indexer"
 	"seedseek/internal/infrastructure/bot"
-	"seedseek/pkg/jackett"
 	"seedseek/pkg/logger"
 
+	"github.com/go-redis/redis"
 	"golang.org/x/exp/slog"
 )
 
@@ -22,15 +22,17 @@ func Run(cfg *config.Config) {
 
 	log.DebugContext(ctx, "Hello world!", slog.Int("test", 123))
 
-	// Database
+	// Databases and caches
+	r := redis.NewClient(&redis.Options{
+		Addr: cfg.App.RedisAddr,
+	})
 
 	// Repositories
 
 	// Adapters
-	jackett := jackett.New(cfg.JackettURL, cfg.JackettApiKey)
 
 	// Indexers
-	indexers := indexer.New(log, cfg, jackett)
+	indexers := indexer.New(log, cfg, r)
 
 	// Services
 

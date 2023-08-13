@@ -37,4 +37,5 @@ type Item struct {
 	TrackerId            string
 	TrackerType          string
 	UploadVolumeFactor   float32
+	IsNew                bool
 }
